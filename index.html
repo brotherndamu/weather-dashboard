@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather & Activity Dashboard</title>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --bg-color: #f1f5f9;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            justify-content: center;
+        }
+
+        .dashboard {
+            max-width: 800px;
+            width: 100%;
+            background: var(--card-bg);
+            padding: 2rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+        }
+
+        h1 {
+            text-align: center;
+            margin-top: 0;
+            color: var(--primary);
+        }
+
+        /* Search Bar */
+        .search-container {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 1.5rem;
+        }
+
+        input {
+            flex: 1;
+            padding: 0.75rem;
+            border: 1px solid #cbd5e1;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        button {
+            padding: 0.75rem 1.5rem;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 1rem;
+            font-weight: bold;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        /* Status & Error Handling */
+        #statusMessage {
+            text-align: center;
+            margin-bottom: 1rem;
+            font-weight: 500;
+        }
+        .error { color: #dc2626; }
+        .info { color: var(--text-muted); }
+
+        /* Current Weather Section */
+        .current-weather {
+            text-align: center;
+            padding: 2rem;
+            background: var(--bg-color);
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            display: none; /* Hidden until data loads */
+        }
+
+        .temp {
+            font-size: 3.5rem;
+            font-weight: bold;
+            margin: 0.5rem 0;
+        }
+
+        .activity-card {
+            background: #dbeafe;
+            color: #1e40af;
+            padding: 1rem;
+            border-radius: 6px;
+            margin-top: 1rem;
+            font-weight: 500;
+        }
+
+        /* 5-Day Forecast Grid */
+        .forecast-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 1rem;
+            display: none; /* Hidden until data loads */
+        }
+
+        .forecast-card {
+            background: var(--bg-color);
+            padding: 1rem;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+
+    <div class="dashboard">
+        <h1>Weather & Activity Planner</h1>
+
+        <div class="search-container">
+            <input type="text" id="cityInput" placeholder="Enter city name (e.g., London, Tokyo)..." onkeypress="handleKeyPress(event)">
+            <button onclick="fetchWeatherData()">Search</button>
+        </div>
+
+        <div id="statusMessage"></div>
+
+        <div id="currentWeather" class="current-weather">
+            <h2 id="cityName">City Name</h2>
+            <div id="weatherDesc" style="text-transform: capitalize;">Description</div>
+            <div class="temp" id="currentTemp">--°C</div>
+            <div class="activity-card">
+                💡 <strong>Recommendation:</strong> <span id="activityRec"></span>
+            </div>
+        </div>
+
+        <h3 id="forecastTitle" class="hidden">5-Day Forecast (Midday)</h3>
+        <div id="forecast" class="forecast-grid">
+            </div>
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const API_KEY = 'YOUR_OPENWEATHER_API_KEY_HERE';
+        const BASE_URL = 'https://api.openweathermap.org/data/2.5';
+
+        // --- DOM ELEMENTS ---
+        const UI = {
+            input: document.getElementById('cityInput'),
+            status: document.getElementById('statusMessage'),
+            currentWeather: document.getElementById('currentWeather'),
+            forecastGrid: document.getElementById('forecast'),
+            forecastTitle: document.getElementById('forecastTitle')
+        };
+
+        // --- ACTIVITY LOGIC ---
+        const activityMap = {
+            "Clear": { hot: "Hit the beach or go for a swim!", mild: "Perfect weather for a hike or a picnic.", cold: "Bundle up for a crisp, sunny walk." },
+            "Clouds": { hot: "Great for an outdoor run without the harsh sun.", mild: "Good conditions for outdoor photography or a walk.", cold: "Grab a jacket and explore the city." },
+            "Rain": "Great day for indoor bouldering, visiting a museum, or coding.",
+            "Snow": "Hit the slopes for skiing, or stay in with a warm drink.",
+            "Thunderstorm": "Stay indoors! Perfect time for a movie marathon."
+        };
+
+        function getRecommendation(condition, temp) {
+            let tempCategory = "mild";
+            if (temp >= 28) tempCategory = "hot";
+            if (temp <= 12) tempCategory = "cold";
+
+            const conditionData = activityMap[condition];
+            if (!conditionData) return "A great day to try something new!";
+
+            return typeof conditionData === 'string' ? conditionData : conditionData[tempCategory];
+        }
+
+        // --- EVENT HANDLERS ---
+        function handleKeyPress(event) {
+            if (event.key === 'Enter') fetchWeatherData();
+        }
+
+        function setStatus(message, type) {
+            UI.status.textContent = message;
+            UI.status.className = type;
+        }
+
+        function hideData() {
+            UI.currentWeather.classList.add('hidden');
+            UI.forecastGrid.classList.add('hidden');
+            UI.forecastTitle.classList.add('hidden');
+        }
+
+        // --- MAIN API LOGIC (Async/Await & Error Handling) ---
+        async function fetchWeatherData() {
+            const city = UI.input.value.trim();
+            if (!city) {
+                setStatus('Please enter a city name.', 'error');
+                return;
+            }
+
+            setStatus('Fetching weather data...', 'info');
+            hideData();
+
+            try {
+                // 1. Fetch Current Weather & Forecast concurrently using Promise.all
+                const [currentRes, forecastRes] = await Promise.all([
+                    fetch(`${BASE_URL}/weather?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric`),
+                    fetch(`${BASE_URL}/forecast?q=${encodeURIComponent(city)}&appid=${API_KEY}&units=metric`)
+                ]);
+
+                // 2. Network Error Handling (HTTP Status Codes)
+                if (!currentRes.ok || !forecastRes.ok) {
+                    if (currentRes.status === 404) throw new Error("City not found. Please check your spelling.");
+                    if (currentRes.status === 401) throw new Error("Invalid API Key. Please check your configuration.");
+                    throw new Error(`Server error: ${currentRes.status}`);
+                }
+
+                // 3. JSON Parsing
+                const currentData = await currentRes.json();
+                const forecastData = await forecastRes.json();
+
+                // 4. Update DOM
+                renderCurrentWeather(currentData);
+                renderForecast(forecastData);
+                setStatus('', ''); // Clear status on success
+
+            } catch (error) {
+                // Catch network failures (e.g., no internet) or thrown errors
+                setStatus(error.message, 'error');
+                console.error("Fetch Error:", error);
+            }
+        }
+
+        // --- RENDER FUNCTIONS ---
+        function renderCurrentWeather(data) {
+            const temp = Math.round(data.main.temp);
+            const condition = data.weather[0].main;
+
+            document.getElementById('cityName').textContent = `${data.name}, ${data.sys.country}`;
+            document.getElementById('weatherDesc').textContent = data.weather[0].description;
+            document.getElementById('currentTemp').textContent = `${temp}°C`;
+            document.getElementById('activityRec').textContent = getRecommendation(condition, temp);
+
+            UI.currentWeather.classList.remove('hidden');
+        }
+
+        function renderForecast(data) {
+            UI.forecastGrid.innerHTML = '';
+
+            // The 5-day forecast returns 40 items (every 3 hours).
+            // We filter to grab only the readings near midday (12:00:00).
+            const dailyData = data.list.filter(item => item.dt_txt.includes("12:00:00"));
+
+            dailyData.forEach(day => {
+                const date = new Date(day.dt * 1000).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+                const temp = Math.round(day.main.temp);
+                const icon = `https://openweathermap.org/img/wn/${day.weather[0].icon}.png`;
+
+                const card = document.createElement('div');
+                card.className = 'forecast-card';
+                card.innerHTML = `
+                    <div style="font-weight: bold; margin-bottom: 0.5rem;">${date}</div>
+                    <img src="${icon}" alt="${day.weather[0].description}">
+                    <div style="font-size: 1.25rem; font-weight: 500;">${temp}°C</div>
+                    <div style="font-size: 0.85rem; color: #64748b; text-transform: capitalize;">${day.weather[0].description}</div>
+                `;
+                UI.forecastGrid.appendChild(card);
+            });
+
+            UI.forecastGrid.classList.remove('hidden');
+            UI.forecastTitle.classList.remove('hidden');
+        }
+    </script>
+</body>
+</html>
